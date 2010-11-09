@@ -1,0 +1,7 @@
+; $Id: brochure_core.info,v 1.1.2.1 2009/12/07 06:16:14 rickvug Exp $
+; Information added by drupal.org packaging script on 2009-12-07
+version = "6.x-1.0-alpha2"
+core = "6.x"
+project = "brochure_core"
+datestamp = "1260172504"
+

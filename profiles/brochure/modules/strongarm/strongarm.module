@@ -1,0 +1,109 @@
+<?php
+// $Id: strongarm.module,v 1.1.2.6.2.1 2009/11/20 22:51:18 yhahn Exp $
+
+/**
+ * Implementation of hook_init().
+ */
+function strongarm_init() {
+  strongarm_set_conf();
+}
+
+/**
+ * Retrieve variable configuration from the cache.
+ */
+function strongarm_set_conf($reset = FALSE) {
+  $varcache = cache_get('variables', 'cache');
+  $cache = cache_get('strongarm', 'cache');
+  // The > comparison here is cautious but ensures that the strongarm cache
+  // actually was populated after the variable cache. It is possible with
+  // >= for the var cache to be populated again during the same stale second.
+  if (!$reset && ($cache && $varcache && $cache->created > $varcache->created)) {
+    $var_conf = $cache->data;
+  }
+  else {
+    ctools_include('export');
+    $vars = ctools_export_load_object('variable');
+    foreach ($vars as $var) {
+      $var_conf[$var->name] = $var->value;
+    }
+    cache_set('strongarm', $var_conf);
+  }
+  global $conf;
+  $conf = $var_conf;
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function strongarm_menu() {
+  $items = array();
+  $items['admin/settings/strongarm'] = array(
+    'title' => 'Strongarm',
+    'description' => 'Manage Drupal variable settings that have been strongarmed.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('strongarm_admin_form'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer site configuration'),
+    'file' => 'strongarm.admin.inc',
+    'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+
+/**
+ * Implementation of hook_form_alter() for system_module form.
+ * Clear strongarm & variable caches on modules page.
+ */
+function strongarm_form_system_module_alter(&$form, &$form_state) {
+  strongarm_flush_caches();
+}
+
+/**
+ * Implementation of hook_theme().
+ */
+function strongarm_theme() {
+  return array(
+    'strongarm_admin_form' => array(
+      'arguments' => array(),
+      'file' => 'strongarm.admin.inc',
+      'path' => drupal_get_path('module', 'strongarm'),
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_flush_caches().
+ */
+function strongarm_flush_caches() {
+  cache_clear_all('variables', 'cache');
+  cache_clear_all('strongarm', 'cache');
+}
+
+/**
+ * Implementation of hook_schema_alter().
+ * Makes the variables table usable by ctools' export.inc.
+ */
+function strongarm_schema_alter(&$schema) {
+  $schema['variable']['export'] = array(
+    'key' => 'name',
+    'identifier' => 'strongarm',
+    'default hook' => 'strongarm',
+    'api' => array(
+      'owner' => 'system',
+      'api' => 'strongarm',
+      'minimum_version' => 1,
+      'current_version' => 1,
+    ),
+  );
+  $schema['variable']['fields']['value']['serialize'] = TRUE;
+}
+
+/**
+ * Implementation of hook_features_revert().
+ */
+if (!function_exists('variable_features_revert')) {
+  function variable_features_revert($module) {
+    ctools_component_features_revert('variable', $module);
+    cache_clear_all('variables', 'cache');
+  }
+}
