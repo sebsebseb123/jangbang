@@ -1,5 +1,5 @@
 <?php
-// $Id: features.filter.inc,v 1.1.2.7 2009/11/18 04:36:36 yhahn Exp $
+// $Id: features.filter.inc,v 1.1.2.12 2010/07/24 21:46:24 yhahn Exp $
 
 /**
  * Implementation of hook_features_api().
@@ -9,6 +9,7 @@ function filter_features_api() {
     'filter' => array(
       'name' => t('Filter formats'),
       'default_hook' => 'filter_default_formats',
+      'default_file' => FEATURES_DEFAULTS_INCLUDED,
     ),
   );
 }
@@ -41,7 +42,7 @@ function filter_features_export($data, &$export, $module_name = '') {
 /**
  * Implementation of hook_features_export_render().
  */
-function filter_features_export_render($module = 'foo', $data) {
+function filter_features_export_render($module, $data) {
   $code = array();
   $code[] = '  $formats = array();';
   $code[] = '';
@@ -49,9 +50,11 @@ function filter_features_export_render($module = 'foo', $data) {
   $formats = _filter_get_formats();
   foreach ($formats as $format) {
     if (in_array($format['name'], $data)) {
-      $code[] = '  // Exported format: '. $format['name'];
-      $code[] = '  $formats[] = '. features_var_export($format, '  ') .';';
-      $code[] = '';
+      $format_export = features_var_export($format, '  ');
+      $format_identifier = features_var_export($format['name']);
+      $code[] = "  // Exported format: {$format['name']}";
+      $code[] = "  \$formats[{$format_identifier}] = {$format_export};";
+      $code[] = "";
     }
   }
 
@@ -71,8 +74,7 @@ function filter_features_revert($module) {
  * Implementation of hook_features_rebuild().
  */
 function filter_features_rebuild($module) {
-  $defaults = module_invoke($module, 'filter_default_formats');
-  if (!empty($defaults)) {
+  if ($defaults = features_get_default('filter', $module)) {
     foreach ($defaults as $format) {
       _filter_features_update($format);
     }
@@ -85,13 +87,14 @@ function filter_features_rebuild($module) {
 function _filter_get_formats() {
   $formats = array();
 
-  $roles = user_roles();
+  // We cannot use user_roles() here because it has the names translated.
+  $roles = _features_get_roles();
   $result = db_query("SELECT * FROM {filter_formats}");
   while ($row = db_fetch_object($result)) {
     $format_roles = array();
     // Prepare a roles array with roles that may access the filter.
-    foreach ($roles as $rid => $name) {
-      if (strstr($row->roles, ",$rid,")) {
+    foreach ($roles as $name => $role) {
+      if (strstr($row->roles, ','. $role['rid'] .',')) {
         $format_roles[] = $name;
       }
     }
@@ -100,7 +103,7 @@ function _filter_get_formats() {
       'roles' => $format_roles,
       'filters' => array(),
     );
-    foreach (filter_list_format($row->format) as $filter) {
+    foreach (_filter_list_format($row->format, TRUE) as $filter) {
       $formats[$row->format]['filters'][] = array(
         'module' => $filter->module,
         'delta' => $filter->delta,
@@ -111,6 +114,35 @@ function _filter_get_formats() {
 
   return $formats;
 }
+
+/**
+ * Direct copy of filter_list_format() but with a way to clear the static.
+ */
+function _filter_list_format($format, $reset = FALSE) {
+  static $filters = array();
+
+  if (!isset($filters[$format]) || $reset) {
+    $result = db_query("SELECT * FROM {filters} WHERE format = %d ORDER BY weight, module, delta", $format);
+    if (db_affected_rows($result) == 0 && !db_result(db_query("SELECT 1 FROM {filter_formats} WHERE format = %d", $format))) {
+      // The format has no filters and does not exist, use the default input
+      // format.
+      $filters[$format] = filter_list_format(variable_get('filter_default_format', 1));
+    }
+    else {
+      $filters[$format] = array();
+      while ($filter = db_fetch_object($result)) {
+        $list = module_invoke($filter->module, 'filter', 'list');
+        if (isset($list) && is_array($list) && isset($list[$filter->delta])) {
+          $filter->name = $list[$filter->delta];
+          $filters[$format][$filter->module .'/'. $filter->delta] = $filter;
+        }
+      }
+    }
+  }
+
+  return $filters[$format];
+}
+
 
 /**
  * Helper function for updating/inserting formats.
