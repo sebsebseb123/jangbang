@@ -1,0 +1,8 @@
+; $Id:$
+name = JangBang
+description = Tableless, recolorable, multi-column, fixed width theme.
+version = VERSION
+core = 6.x
+base theme = barland
+stylesheets[all][] = jangbang.css
+
